@@ -141,6 +141,7 @@ Set these values in `backend/.env`:
 - `STRAVA_CLIENT_ID`
 - `STRAVA_CLIENT_SECRET`
 - `STRAVA_REDIRECT_URL=http://localhost:8080/api/auth/strava/callback`
+- `STRAVA_SCOPES=read_all,activity:read_all`
 - `AWS_REGION=eu-central-1`
 - `DDB_ATHLETES_TABLE=strava-athletes`
 - `DDB_ACTIVITIES_TABLE=strava-activities`
@@ -181,6 +182,7 @@ After logging in:
 
 1. Sync activities if you want analytics populated.
 2. Sync routes if you want the public route search to show results.
+3. If you change `STRAVA_SCOPES`, log out and complete OAuth again so Strava issues a token with the new scopes.
 
 ## 6) Deploy To Fly.io
 

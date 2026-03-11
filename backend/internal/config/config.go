@@ -34,7 +34,7 @@ func Load() (Config, error) {
 		StravaClientID:        os.Getenv("STRAVA_CLIENT_ID"),
 		StravaClientSecret:    os.Getenv("STRAVA_CLIENT_SECRET"),
 		StravaRedirectURL:     os.Getenv("STRAVA_REDIRECT_URL"),
-		StravaScopes:          getenvDefault("STRAVA_SCOPES", "read,activity:read_all"),
+		StravaScopes:          getenvDefault("STRAVA_SCOPES", "read_all,activity:read_all"),
 		SyncDefaultDays:       getenvIntDefault("SYNC_DEFAULT_DAYS", 365),
 		StaticDir:             os.Getenv("STATIC_DIR"),
 		AWSRegion:             os.Getenv("AWS_REGION"),

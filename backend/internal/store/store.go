@@ -571,6 +571,30 @@ func (s *Store) SearchActivities(ctx context.Context, query string, limit int) (
 	return activities, nil
 }
 
+func (s *Store) GetActivity(ctx context.Context, athleteID, activityID int64) (Activity, error) {
+	output, err := s.client.GetItem(ctx, &dynamodb.GetItemInput{
+		TableName: aws.String(s.activitiesTable),
+		Key: map[string]types.AttributeValue{
+			"athlete_id":  &types.AttributeValueMemberN{Value: strconv.FormatInt(athleteID, 10)},
+			"activity_id": &types.AttributeValueMemberN{Value: strconv.FormatInt(activityID, 10)},
+		},
+		ConsistentRead: aws.Bool(true),
+	})
+	if err != nil {
+		return Activity{}, fmt.Errorf("get activity %d for athlete %d: %w", activityID, athleteID, err)
+	}
+	if len(output.Item) == 0 {
+		return Activity{}, ErrNotFound
+	}
+
+	var item activityItem
+	if err := attributevalue.UnmarshalMap(output.Item, &item); err != nil {
+		return Activity{}, fmt.Errorf("unmarshal activity %d for athlete %d: %w", activityID, athleteID, err)
+	}
+
+	return convertActivity(item), nil
+}
+
 func (s *Store) GetRoute(ctx context.Context, routeID int64) (Route, error) {
 	output, err := s.client.GetItem(ctx, &dynamodb.GetItemInput{
 		TableName:      aws.String(s.routesTable),

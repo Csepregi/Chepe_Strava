@@ -3,12 +3,14 @@
 :root {
   --bg-top: #fdf8ed;
   --bg-bottom: #f1e8d8;
-  --panel: rgba(255, 255, 255, 0.76);
+  --panel: rgba(255, 255, 255, 0.84);
   --panel-border: rgba(27, 48, 68, 0.12);
   --ink: #1b3044;
   --ink-soft: #465d71;
   --accent: #fc4c02;
   --accent-dark: #bf3a03;
+  --terrain: #627a69;
+  --terrain-soft: #e7eee2;
   --ok: #20603d;
   --error: #a02819;
   --shadow: 0 18px 45px rgba(33, 46, 63, 0.14);
@@ -24,16 +26,17 @@ body {
   font-family: 'Space Grotesk', 'Avenir Next', sans-serif;
   color: var(--ink);
   background:
+    repeating-radial-gradient(circle at 20% 18%, rgba(27, 48, 68, 0.03) 0 2px, transparent 2px 18px),
     radial-gradient(circle at 10% 0%, rgba(252, 76, 2, 0.2), transparent 40%),
     radial-gradient(circle at 100% 0%, rgba(0, 113, 188, 0.14), transparent 45%),
     linear-gradient(160deg, var(--bg-top), var(--bg-bottom));
 }
 
 .app-shell {
-  width: min(1120px, 92vw);
-  margin: 2.2rem auto 3rem;
+  width: min(1260px, 94vw);
+  margin: 1.4rem auto 2.6rem;
   display: grid;
-  gap: 1rem;
+  gap: 1.05rem;
   animation: appear 380ms ease-out;
 }
 
@@ -41,9 +44,9 @@ body {
   background: var(--panel);
   backdrop-filter: blur(12px);
   border: 1px solid var(--panel-border);
-  border-radius: 18px;
+  border-radius: 24px;
   box-shadow: var(--shadow);
-  padding: 1.05rem 1.2rem;
+  padding: clamp(1rem, 1.4vw, 1.3rem);
 }
 
 .hero-panel {
@@ -92,6 +95,8 @@ body {
 .topbar-actions {
   display: flex;
   gap: 0.7rem;
+  flex-wrap: wrap;
+  justify-content: flex-end;
 }
 
 .controls {
@@ -111,7 +116,7 @@ body {
 .route-shell {
   display: grid;
   gap: 1rem;
-  grid-template-columns: minmax(0, 0.92fr) minmax(0, 1.08fr);
+  grid-template-columns: minmax(310px, 0.84fr) minmax(0, 1.16fr);
 }
 
 .activity-spotlight {
@@ -147,7 +152,7 @@ body {
 }
 
 .activity-map-shell {
-  min-height: 360px;
+  min-height: 400px;
 }
 
 .activity-spotlight-copy {
@@ -165,6 +170,12 @@ body {
   justify-content: space-between;
   gap: 1rem;
   align-items: flex-start;
+}
+
+.route-search-panel {
+  align-self: start;
+  position: sticky;
+  top: 1rem;
 }
 
 .route-toolbar h2,
@@ -193,6 +204,18 @@ body {
   margin-top: 1rem;
   display: grid;
   gap: 0.7rem;
+  max-height: 39rem;
+  overflow: auto;
+  padding-right: 0.2rem;
+}
+
+.route-results::-webkit-scrollbar {
+  width: 8px;
+}
+
+.route-results::-webkit-scrollbar-thumb {
+  background: rgba(27, 48, 68, 0.16);
+  border-radius: 999px;
 }
 
 .search-section-label {
@@ -239,6 +262,7 @@ body {
 .route-detail-panel {
   display: grid;
   gap: 1rem;
+  min-width: 0;
 }
 
 .route-detail-head {
@@ -281,8 +305,8 @@ body {
 }
 
 .route-map-shell {
-  min-height: 320px;
-  border-radius: 18px;
+  min-height: 340px;
+  border-radius: 22px;
   overflow: hidden;
   background:
     radial-gradient(circle at 20% 10%, rgba(252, 76, 2, 0.22), transparent 32%),
@@ -294,15 +318,15 @@ body {
 .route-map-empty {
   width: 100%;
   height: 100%;
-  min-height: 320px;
+  min-height: 340px;
 }
 
 .route-map-live {
-  min-height: 320px;
+  min-height: 340px;
 }
 
 .route-map-live .mapboxgl-canvas {
-  border-radius: 18px;
+  border-radius: 22px;
 }
 
 .route-map-live .mapboxgl-ctrl-top-right {
@@ -323,6 +347,180 @@ body {
   line-height: 1.55;
 }
 
+.profile-shell {
+  display: grid;
+  gap: 0.7rem;
+  padding: 0.95rem 1rem;
+  border: 1px solid rgba(27, 48, 68, 0.09);
+  border-radius: 22px;
+  background: rgba(255, 255, 255, 0.62);
+}
+
+.profile-shell-rich {
+  gap: 1rem;
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.92), rgba(245, 241, 231, 0.72)),
+    linear-gradient(140deg, rgba(98, 122, 105, 0.06), transparent 42%);
+}
+
+.profile-head {
+  display: flex;
+  justify-content: space-between;
+  gap: 1rem;
+  align-items: flex-start;
+}
+
+.profile-head-values {
+  display: flex;
+  gap: 0.8rem;
+  flex-wrap: wrap;
+  color: var(--ink-soft);
+  font-size: 0.92rem;
+}
+
+.profile-chart {
+  width: 100%;
+  height: auto;
+  touch-action: none;
+}
+
+.profile-chart-rich {
+  display: block;
+}
+
+.profile-axis {
+  stroke: rgba(27, 48, 68, 0.16);
+  stroke-width: 1;
+}
+
+.profile-grid {
+  stroke: rgba(27, 48, 68, 0.12);
+  stroke-width: 1;
+  stroke-dasharray: 4 8;
+}
+
+.profile-axis-label {
+  fill: var(--ink-soft);
+  font-family: 'Space Grotesk', sans-serif;
+  font-size: 12px;
+}
+
+.profile-area {
+  opacity: 0.96;
+}
+
+.profile-area-contours {
+  opacity: 0.62;
+}
+
+.profile-line {
+  fill: none;
+  stroke: var(--terrain);
+  stroke-width: 4;
+  stroke-linejoin: round;
+  stroke-linecap: round;
+}
+
+.profile-guide {
+  stroke: rgba(27, 48, 68, 0.3);
+  stroke-width: 1.5;
+  stroke-dasharray: 4 5;
+}
+
+.profile-marker {
+  fill: var(--accent-dark);
+  stroke: #fff;
+  stroke-width: 2.5;
+}
+
+.profile-annotation-line {
+  stroke: rgba(27, 48, 68, 0.22);
+  stroke-width: 1.4;
+  stroke-dasharray: 5 6;
+}
+
+.profile-annotation-dot {
+  fill: var(--terrain);
+  stroke: #fff;
+  stroke-width: 2;
+}
+
+.profile-annotation-text {
+  fill: var(--ink);
+  font-family: 'Space Grotesk', sans-serif;
+  font-size: 13px;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+}
+
+.profile-footer-band {
+  fill: #152330;
+}
+
+.profile-footer-text {
+  fill: #f6f2e8;
+  font-family: 'Space Grotesk', sans-serif;
+  font-size: 14px;
+  font-weight: 700;
+  letter-spacing: 0.01em;
+}
+
+.profile-scale {
+  display: flex;
+  justify-content: space-between;
+  color: var(--ink-soft);
+  font-size: 0.82rem;
+}
+
+.profile-summary,
+.profile-climb-strip {
+  display: grid;
+  gap: 0.65rem;
+}
+
+.profile-summary {
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+}
+
+.profile-climb-strip {
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+}
+
+.profile-summary-card,
+.profile-climb-chip {
+  display: grid;
+  gap: 0.2rem;
+  padding: 0.8rem 0.85rem;
+  border-radius: 18px;
+  border: 1px solid rgba(27, 48, 68, 0.08);
+  background: rgba(255, 255, 255, 0.68);
+}
+
+.profile-summary-label {
+  margin: 0;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  font-size: 0.68rem;
+  color: var(--ink-soft);
+}
+
+.profile-summary-detail {
+  color: var(--ink-soft);
+  font-size: 0.82rem;
+}
+
+.profile-empty {
+  display: grid;
+  place-items: center;
+  min-height: 160px;
+  padding: 1rem;
+  border: 1px solid rgba(27, 48, 68, 0.09);
+  border-radius: 18px;
+  background: rgba(255, 255, 255, 0.62);
+  color: var(--ink-soft);
+  text-align: center;
+}
+
 .route-visuals {
   display: grid;
   gap: 0.85rem;
@@ -339,6 +537,36 @@ body {
   border: 1px solid rgba(27, 48, 68, 0.09);
   border-radius: 16px;
   background: rgba(255, 255, 255, 0.58);
+}
+
+.detail-media-card {
+  display: grid;
+  gap: 0.9rem;
+  align-content: start;
+  padding: 0.9rem;
+  border: 1px solid rgba(27, 48, 68, 0.09);
+  border-radius: 16px;
+  background: rgba(255, 255, 255, 0.58);
+}
+
+.detail-media-image,
+.detail-media-empty {
+  width: 100%;
+  min-height: 220px;
+  border-radius: 16px;
+}
+
+.detail-media-image {
+  object-fit: cover;
+}
+
+.detail-media-empty {
+  display: grid;
+  place-items: center;
+  background: rgba(27, 48, 68, 0.06);
+  color: var(--ink-soft);
+  text-align: center;
+  padding: 1rem;
 }
 
 .route-owner-image,
@@ -509,8 +737,13 @@ th {
     grid-template-columns: 1fr;
   }
 
+  .route-search-panel {
+    position: static;
+  }
+
   .route-detail-head,
   .activity-spotlight-head,
+  .profile-head,
   .route-toolbar {
     flex-direction: column;
   }
@@ -523,9 +756,22 @@ th {
   .stat-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
+
+  .profile-summary {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .route-results {
+    max-height: none;
+  }
 }
 
 @media (max-width: 560px) {
+  .app-shell {
+    margin: 0.8rem auto 1.8rem;
+    gap: 0.85rem;
+  }
+
   .hero-panel {
     padding: 1.25rem;
   }
@@ -550,5 +796,33 @@ th {
 
   .btn {
     flex: 1;
+  }
+
+  .panel {
+    padding: 0.95rem;
+    border-radius: 20px;
+  }
+
+  .route-map-shell,
+  .route-map,
+  .route-map-empty,
+  .route-map-live,
+  .activity-map-shell {
+    min-height: 260px;
+  }
+
+  .profile-summary,
+  .profile-climb-strip,
+  .route-visuals,
+  .stat-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .profile-annotation-text {
+    font-size: 12px;
+  }
+
+  .profile-footer-text {
+    font-size: 12px;
   }
 }

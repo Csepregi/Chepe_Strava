@@ -63,6 +63,12 @@ type Activity struct {
 	Map                Map       `json:"map"`
 }
 
+type DetailedActivity struct {
+	Activity
+	Description string        `json:"description"`
+	Photos      PhotosSummary `json:"photos"`
+}
+
 type SummaryAthlete struct {
 	ID            int64  `json:"id"`
 	Username      string `json:"username"`
@@ -87,6 +93,46 @@ type Route struct {
 	ElevationGain       float64        `json:"elevation_gain"`
 	EstimatedMovingTime int            `json:"estimated_moving_time"`
 	Map                 Map            `json:"map"`
+}
+
+type PhotosSummary struct {
+	Count   int           `json:"count"`
+	Primary *PhotoPrimary `json:"primary"`
+}
+
+type PhotoPrimary struct {
+	UniqueID string    `json:"unique_id"`
+	URLs     PhotoURLs `json:"urls"`
+}
+
+type PhotoURLs map[string]string
+
+type FloatStream struct {
+	OriginalSize int       `json:"original_size"`
+	Resolution   string    `json:"resolution"`
+	SeriesType   string    `json:"series_type"`
+	Data         []float64 `json:"data"`
+}
+
+type LatLngStream struct {
+	OriginalSize int         `json:"original_size"`
+	Resolution   string      `json:"resolution"`
+	SeriesType   string      `json:"series_type"`
+	Data         [][]float64 `json:"data"`
+}
+
+type StreamSet struct {
+	Distance *FloatStream  `json:"distance,omitempty"`
+	Altitude *FloatStream  `json:"altitude,omitempty"`
+	LatLng   *LatLngStream `json:"latlng,omitempty"`
+}
+
+type streamEnvelope struct {
+	Type         string          `json:"type"`
+	OriginalSize int             `json:"original_size"`
+	Resolution   string          `json:"resolution"`
+	SeriesType   string          `json:"series_type"`
+	Data         json.RawMessage `json:"data"`
 }
 
 type tokenRequest struct {
@@ -209,6 +255,47 @@ func (c *Client) FetchActivities(ctx context.Context, accessToken string, perPag
 	return activities, nil
 }
 
+func (c *Client) GetActivityByID(ctx context.Context, accessToken string, activityID int64) (DetailedActivity, error) {
+	requestURL := fmt.Sprintf("%s/activities/%d", stravaAPIRootURL, activityID)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, requestURL, nil)
+	if err != nil {
+		return DetailedActivity{}, err
+	}
+	req.Header.Set("Authorization", "Bearer "+accessToken)
+
+	resp, err := c.httpClient.Do(req)
+	if err != nil {
+		return DetailedActivity{}, err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode >= 300 {
+		body, _ := io.ReadAll(resp.Body)
+		return DetailedActivity{}, fmt.Errorf("strava activity detail fetch failed: %d %s", resp.StatusCode, string(body))
+	}
+
+	var activity DetailedActivity
+	if decodeErr := json.NewDecoder(resp.Body).Decode(&activity); decodeErr != nil {
+		return DetailedActivity{}, decodeErr
+	}
+
+	return activity, nil
+}
+
+func (c *Client) GetActivityStreams(ctx context.Context, accessToken string, activityID int64) (StreamSet, error) {
+	requestURL, err := url.Parse(fmt.Sprintf("%s/activities/%d/streams", stravaAPIRootURL, activityID))
+	if err != nil {
+		return StreamSet{}, err
+	}
+
+	query := requestURL.Query()
+	query.Set("keys", "distance,altitude,latlng")
+	query.Set("key_by_type", "true")
+	requestURL.RawQuery = query.Encode()
+
+	return c.fetchStreamSet(ctx, accessToken, requestURL.String(), "strava activity streams fetch failed")
+}
+
 func (c *Client) ListAthleteRoutes(ctx context.Context, accessToken string, athleteID int64) ([]Route, error) {
 	requestURL := fmt.Sprintf("%s/athletes/%d/routes", stravaAPIRootURL, athleteID)
 	return c.getRoutes(ctx, accessToken, requestURL)
@@ -241,6 +328,11 @@ func (c *Client) GetRouteByID(ctx context.Context, accessToken string, routeID i
 	return route, nil
 }
 
+func (c *Client) GetRouteStreams(ctx context.Context, accessToken string, routeID int64) (StreamSet, error) {
+	requestURL := fmt.Sprintf("%s/routes/%d/streams", stravaAPIRootURL, routeID)
+	return c.fetchStreamSet(ctx, accessToken, requestURL, "strava route streams fetch failed")
+}
+
 func (c *Client) getRoutes(ctx context.Context, accessToken string, requestURL string) ([]Route, error) {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, requestURL, nil)
 	if err != nil {
@@ -265,4 +357,135 @@ func (c *Client) getRoutes(ctx context.Context, accessToken string, requestURL s
 	}
 
 	return routes, nil
+}
+
+func (c *Client) fetchStreamSet(ctx context.Context, accessToken string, requestURL, errorPrefix string) (StreamSet, error) {
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, requestURL, nil)
+	if err != nil {
+		return StreamSet{}, err
+	}
+	req.Header.Set("Authorization", "Bearer "+accessToken)
+
+	resp, err := c.httpClient.Do(req)
+	if err != nil {
+		return StreamSet{}, err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode >= 300 {
+		body, _ := io.ReadAll(resp.Body)
+		return StreamSet{}, fmt.Errorf("%s: %d %s", errorPrefix, resp.StatusCode, string(body))
+	}
+
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return StreamSet{}, err
+	}
+
+	return decodeStreamSet(body)
+}
+
+func decodeStreamSet(body []byte) (StreamSet, error) {
+	var direct StreamSet
+	if err := json.Unmarshal(body, &direct); err == nil {
+		if direct.Distance != nil || direct.Altitude != nil || direct.LatLng != nil {
+			return direct, nil
+		}
+	}
+
+	var envelopes []streamEnvelope
+	if err := json.Unmarshal(body, &envelopes); err != nil {
+		return StreamSet{}, err
+	}
+
+	var set StreamSet
+	for _, envelope := range envelopes {
+		switch envelope.Type {
+		case "distance":
+			stream := FloatStream{
+				OriginalSize: envelope.OriginalSize,
+				Resolution:   envelope.Resolution,
+				SeriesType:   envelope.SeriesType,
+			}
+			if err := json.Unmarshal(envelope.Data, &stream.Data); err != nil {
+				return StreamSet{}, err
+			}
+			set.Distance = &stream
+		case "altitude":
+			stream := FloatStream{
+				OriginalSize: envelope.OriginalSize,
+				Resolution:   envelope.Resolution,
+				SeriesType:   envelope.SeriesType,
+			}
+			if err := json.Unmarshal(envelope.Data, &stream.Data); err != nil {
+				return StreamSet{}, err
+			}
+			set.Altitude = &stream
+		case "latlng":
+			stream := LatLngStream{
+				OriginalSize: envelope.OriginalSize,
+				Resolution:   envelope.Resolution,
+				SeriesType:   envelope.SeriesType,
+			}
+			if err := json.Unmarshal(envelope.Data, &stream.Data); err != nil {
+				return StreamSet{}, err
+			}
+			set.LatLng = &stream
+		}
+	}
+
+	return set, nil
+}
+
+func (u *PhotoURLs) UnmarshalJSON(data []byte) error {
+	if string(data) == "null" {
+		*u = nil
+		return nil
+	}
+
+	var mapping map[string]string
+	if err := json.Unmarshal(data, &mapping); err == nil {
+		*u = mapping
+		return nil
+	}
+
+	var single string
+	if err := json.Unmarshal(data, &single); err == nil {
+		*u = PhotoURLs{"default": single}
+		return nil
+	}
+
+	return fmt.Errorf("unsupported photo urls payload")
+}
+
+func (u PhotoURLs) BestURL() string {
+	for _, key := range []string{"600", "default", "300", "100"} {
+		if url := u[key]; url != "" {
+			return url
+		}
+	}
+
+	for _, url := range u {
+		if url != "" {
+			return url
+		}
+	}
+
+	return ""
+}
+
+func (u PhotoURLs) ThumbnailURL() string {
+	for _, key := range []string{"100", "300", "default", "600"} {
+		if url := u[key]; url != "" {
+			return url
+		}
+	}
+
+	for _, url := range u {
+		if url != "" {
+			return url
+		}
+	}
+
+	return ""
 }

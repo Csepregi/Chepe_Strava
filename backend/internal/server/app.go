@@ -49,6 +49,25 @@ type meResponse struct {
 	TokenExpiresAt time.Time     `json:"token_expires_at"`
 }
 
+type visualPoint struct {
+	DistanceMeters float64  `json:"distance_meters"`
+	AltitudeMeters float64  `json:"altitude_meters"`
+	Lat            *float64 `json:"lat,omitempty"`
+	Lng            *float64 `json:"lng,omitempty"`
+}
+
+type activityVisualResponse struct {
+	Description              string        `json:"description"`
+	PhotoCount               int           `json:"photo_count"`
+	PrimaryPhotoURL          string        `json:"primary_photo_url"`
+	PrimaryPhotoThumbnailURL string        `json:"primary_photo_thumbnail_url"`
+	StreamPoints             []visualPoint `json:"stream_points"`
+}
+
+type routeVisualResponse struct {
+	StreamPoints []visualPoint `json:"stream_points"`
+}
+
 func New(cfg config.Config, dataStore *store.Store) *App {
 	staticDir := ""
 	if info, err := os.Stat(cfg.StaticDir); err == nil && info.IsDir() {
@@ -73,12 +92,14 @@ func (a *App) Handler() http.Handler {
 	mux.HandleFunc("POST /api/auth/logout", a.requireAuth(a.handleLogout))
 	mux.HandleFunc("GET /api/public/latest-activity", a.handleLatestPublicActivity)
 	mux.HandleFunc("GET /api/search", a.handleSearch)
+	mux.HandleFunc("GET /api/activities/{activityID}/visual", a.handleActivityVisual)
 	mux.HandleFunc("GET /api/me", a.requireAuth(a.handleMe))
 	mux.HandleFunc("POST /api/activities/sync", a.requireAuth(a.handleSyncActivities))
 	mux.HandleFunc("GET /api/activities", a.requireAuth(a.handleListActivities))
 	mux.HandleFunc("GET /api/analytics/summary", a.requireAuth(a.handleSummary))
 	mux.HandleFunc("POST /api/routes/sync", a.requireAuth(a.handleSyncRoutes))
 	mux.HandleFunc("GET /api/routes/search", a.handleRouteSearch)
+	mux.HandleFunc("GET /api/routes/{routeID}/visual", a.handleRouteVisual)
 	mux.HandleFunc("GET /api/routes/{routeID}", a.handleRouteDetail)
 
 	if a.staticDir != "" {
@@ -427,6 +448,61 @@ func (a *App) handleSearch(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+func (a *App) handleActivityVisual(w http.ResponseWriter, r *http.Request) {
+	activityID, err := strconv.ParseInt(r.PathValue("activityID"), 10, 64)
+	if err != nil || activityID <= 0 {
+		writeError(w, http.StatusBadRequest, "invalid activity id")
+		return
+	}
+
+	athleteID, err := strconv.ParseInt(r.URL.Query().Get("athlete_id"), 10, 64)
+	if err != nil || athleteID <= 0 {
+		writeError(w, http.StatusBadRequest, "invalid athlete id")
+		return
+	}
+
+	if _, err := a.store.GetActivity(r.Context(), athleteID, activityID); err != nil {
+		if errors.Is(err, store.ErrNotFound) {
+			writeError(w, http.StatusNotFound, "activity not found")
+			return
+		}
+		writeError(w, http.StatusInternalServerError, "failed to load activity")
+		return
+	}
+
+	token, err := a.store.GetToken(r.Context(), athleteID)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "missing oauth token")
+		return
+	}
+
+	accessToken, err := a.ensureValidToken(r.Context(), token)
+	if err != nil {
+		writeError(w, http.StatusBadGateway, "failed to refresh strava token")
+		return
+	}
+
+	detail, err := a.strava.GetActivityByID(r.Context(), accessToken, activityID)
+	if err != nil {
+		writeError(w, http.StatusBadGateway, "failed to fetch activity detail")
+		return
+	}
+
+	streams, err := a.strava.GetActivityStreams(r.Context(), accessToken, activityID)
+	if err != nil {
+		writeError(w, http.StatusBadGateway, "failed to fetch activity streams")
+		return
+	}
+
+	writeJSON(w, http.StatusOK, activityVisualResponse{
+		Description:              detail.Description,
+		PhotoCount:               detail.Photos.Count,
+		PrimaryPhotoURL:          bestPhotoURL(detail),
+		PrimaryPhotoThumbnailURL: thumbnailPhotoURL(detail),
+		StreamPoints:             buildVisualPoints(streams),
+	})
+}
+
 func (a *App) handleRouteSearch(w http.ResponseWriter, r *http.Request) {
 	limit := 12
 	if rawLimit := r.URL.Query().Get("limit"); rawLimit != "" {
@@ -466,6 +542,46 @@ func (a *App) handleRouteDetail(w http.ResponseWriter, r *http.Request) {
 	}
 
 	writeJSON(w, http.StatusOK, map[string]any{"route": route})
+}
+
+func (a *App) handleRouteVisual(w http.ResponseWriter, r *http.Request) {
+	routeID, err := strconv.ParseInt(r.PathValue("routeID"), 10, 64)
+	if err != nil || routeID <= 0 {
+		writeError(w, http.StatusBadRequest, "invalid route id")
+		return
+	}
+
+	route, err := a.store.GetRoute(r.Context(), routeID)
+	if err != nil {
+		if errors.Is(err, store.ErrNotFound) {
+			writeError(w, http.StatusNotFound, "route not found")
+			return
+		}
+		writeError(w, http.StatusInternalServerError, "failed to load route")
+		return
+	}
+
+	token, err := a.store.GetToken(r.Context(), route.AthleteID)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "missing oauth token")
+		return
+	}
+
+	accessToken, err := a.ensureValidToken(r.Context(), token)
+	if err != nil {
+		writeError(w, http.StatusBadGateway, "failed to refresh strava token")
+		return
+	}
+
+	streams, err := a.strava.GetRouteStreams(r.Context(), accessToken, routeID)
+	if err != nil {
+		writeError(w, http.StatusBadGateway, "failed to fetch route streams")
+		return
+	}
+
+	writeJSON(w, http.StatusOK, routeVisualResponse{
+		StreamPoints: buildVisualPoints(streams),
+	})
 }
 
 func (a *App) handleSPA(w http.ResponseWriter, r *http.Request) {
@@ -609,4 +725,50 @@ func (a *App) loggingMiddleware(next http.Handler) http.Handler {
 		next.ServeHTTP(w, r)
 		log.Printf("%s %s %s", r.Method, r.URL.Path, time.Since(start).Round(time.Millisecond))
 	})
+}
+
+func bestPhotoURL(activity strava.DetailedActivity) string {
+	if activity.Photos.Primary == nil {
+		return ""
+	}
+	return activity.Photos.Primary.URLs.BestURL()
+}
+
+func thumbnailPhotoURL(activity strava.DetailedActivity) string {
+	if activity.Photos.Primary == nil {
+		return ""
+	}
+	return activity.Photos.Primary.URLs.ThumbnailURL()
+}
+
+func buildVisualPoints(streams strava.StreamSet) []visualPoint {
+	if streams.Distance == nil || streams.Altitude == nil {
+		return nil
+	}
+
+	count := len(streams.Distance.Data)
+	if len(streams.Altitude.Data) < count {
+		count = len(streams.Altitude.Data)
+	}
+	if count == 0 {
+		return nil
+	}
+
+	hasLatLng := streams.LatLng != nil && len(streams.LatLng.Data) >= count
+	points := make([]visualPoint, 0, count)
+	for i := 0; i < count; i++ {
+		point := visualPoint{
+			DistanceMeters: streams.Distance.Data[i],
+			AltitudeMeters: streams.Altitude.Data[i],
+		}
+		if hasLatLng && len(streams.LatLng.Data[i]) >= 2 {
+			lat := streams.LatLng.Data[i][0]
+			lng := streams.LatLng.Data[i][1]
+			point.Lat = &lat
+			point.Lng = &lng
+		}
+		points = append(points, point)
+	}
+
+	return points
 }

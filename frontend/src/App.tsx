@@ -1,4 +1,5 @@
 import { FormEvent, useEffect, useState } from 'react';
+import ElevationProfile, { type ProfilePoint } from './ElevationProfile';
 import RouteMap from './RouteMap';
 
 type Athlete = {
@@ -19,6 +20,7 @@ type MeResponse = {
 
 type Activity = {
   id: number;
+  athlete_id: number;
   name: string;
   type: string;
   distance_meters: number;
@@ -80,6 +82,18 @@ type RouteSearchResponse = {
 
 type LatestActivityResponse = {
   activity: Activity | null;
+};
+
+type ActivityVisualResponse = {
+  description: string;
+  photo_count: number;
+  primary_photo_url: string;
+  primary_photo_thumbnail_url: string;
+  stream_points: ProfilePoint[];
+};
+
+type RouteVisualResponse = {
+  stream_points: ProfilePoint[];
 };
 
 type SearchSelection =
@@ -200,6 +214,11 @@ export default function App() {
   const [routeResults, setRouteResults] = useState<Route[]>([]);
   const [selectedSearchKey, setSelectedSearchKey] = useState<string | null>(null);
   const [latestActivity, setLatestActivity] = useState<Activity | null>(null);
+  const [activityVisuals, setActivityVisuals] = useState<Record<string, ActivityVisualResponse>>({});
+  const [routeVisuals, setRouteVisuals] = useState<Record<string, RouteVisualResponse>>({});
+  const [visualLoading, setVisualLoading] = useState<boolean>(false);
+  const [visualError, setVisualError] = useState<string>('');
+  const [focusedProfilePoint, setFocusedProfilePoint] = useState<ProfilePoint | null>(null);
 
   const authUrl = apiUrl('/api/auth/strava/login');
 
@@ -303,6 +322,62 @@ export default function App() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  useEffect(() => {
+    const selectedResult = resolveSelection(selectedSearchKey, activityResults, routeResults);
+    setFocusedProfilePoint(null);
+    setVisualError('');
+
+    if (!selectedResult) {
+      return;
+    }
+
+    const cacheKey =
+      selectedResult.kind === 'activity' ? activityResultKey(selectedResult.activity) : routeResultKey(selectedResult.route);
+    const cachedVisual = selectedResult.kind === 'activity' ? activityVisuals[cacheKey] : routeVisuals[cacheKey];
+    if (cachedVisual) {
+      return;
+    }
+
+    let cancelled = false;
+
+    const loadVisual = async () => {
+      setVisualLoading(true);
+
+      try {
+        if (selectedResult.kind === 'activity') {
+          const payload = await apiRequest<ActivityVisualResponse>(
+            `/api/activities/${selectedResult.activity.id}/visual?athlete_id=${selectedResult.activity.athlete_id}`,
+          );
+          if (cancelled) {
+            return;
+          }
+          setActivityVisuals((current) => ({ ...current, [cacheKey]: payload }));
+          return;
+        }
+
+        const payload = await apiRequest<RouteVisualResponse>(`/api/routes/${selectedResult.route.id}/visual`);
+        if (cancelled) {
+          return;
+        }
+        setRouteVisuals((current) => ({ ...current, [cacheKey]: payload }));
+      } catch (error) {
+        if (!cancelled) {
+          setVisualError((error as Error).message);
+        }
+      } finally {
+        if (!cancelled) {
+          setVisualLoading(false);
+        }
+      }
+    };
+
+    loadVisual().catch(() => undefined);
+
+    return () => {
+      cancelled = true;
+    };
+  }, [activityResults, activityVisuals, routeResults, routeVisuals, selectedSearchKey]);
+
   const handleSync = async (): Promise<void> => {
     setSyncing(true);
     setErrorMessage('');
@@ -380,8 +455,12 @@ export default function App() {
     const selectedResult = resolveSelection(selectedSearchKey, activityResults, routeResults);
     const selectedRoute = selectedResult?.kind === 'route' ? selectedResult.route : null;
     const selectedActivity = selectedResult?.kind === 'activity' ? selectedResult.activity : null;
+    const selectedActivityVisual = selectedActivity ? activityVisuals[activityResultKey(selectedActivity)] ?? null : null;
+    const selectedRouteVisual = selectedRoute ? routeVisuals[routeResultKey(selectedRoute)] ?? null : null;
     const routePolyline = selectedRoute?.map_polyline || selectedRoute?.summary_polyline || '';
     const activityPolyline = selectedActivity?.map_polyline || selectedActivity?.summary_polyline || '';
+    const chartPoints = selectedActivityVisual?.stream_points ?? selectedRouteVisual?.stream_points ?? [];
+    const chartTitle = selectedActivity?.name || selectedRoute?.name || 'Elevation profile';
     const hasQuery = searchQuery.trim().length > 0;
     const hasAnyResults = activityResults.length > 0 || routeResults.length > 0;
 
@@ -513,10 +592,54 @@ export default function App() {
               </div>
 
               <div className="route-map-shell">
-                <RouteMap polyline={activityPolyline} title={selectedActivity.name} />
+                <RouteMap
+                  polyline={activityPolyline}
+                  title={selectedActivity.name}
+                  streamPoints={chartPoints}
+                  onFocusPointChange={setFocusedProfilePoint}
+                  focusPoint={
+                    focusedProfilePoint?.lat != null && focusedProfilePoint?.lng != null
+                      ? { lat: focusedProfilePoint.lat, lng: focusedProfilePoint.lng }
+                      : null
+                  }
+                />
               </div>
 
+              <ElevationProfile
+                points={chartPoints}
+                title={chartTitle}
+                focusedPoint={focusedProfilePoint}
+                onFocusPointChange={setFocusedProfilePoint}
+              />
+
+              {visualLoading && !selectedActivityVisual && <p className="subtle">Loading Strava media and elevation profile...</p>}
+              {visualError && <p className="message error">{visualError}</p>}
+              {selectedActivityVisual?.description && <p className="route-description">{selectedActivityVisual.description}</p>}
+
               <div className="route-visuals">
+                <div className="detail-media-card">
+                  {selectedActivityVisual?.primary_photo_url ? (
+                    <img
+                      className="detail-media-image"
+                      src={selectedActivityVisual.primary_photo_url}
+                      alt={selectedActivity.name}
+                    />
+                  ) : (
+                    <div className="detail-media-empty">No Strava activity photo available.</div>
+                  )}
+                  <div>
+                    <p className="route-visual-label">Primary Photo</p>
+                    <strong>
+                      {selectedActivityVisual?.photo_count
+                        ? `${selectedActivityVisual.photo_count} photo${selectedActivityVisual.photo_count === 1 ? '' : 's'}`
+                        : 'No photos'}
+                    </strong>
+                    <p className="subtle">
+                      Strava exposes a photo summary plus the primary photo for the activity, not a full gallery payload.
+                    </p>
+                  </div>
+                </div>
+
                 <div className="detail-info-card">
                   <div>
                     <p className="route-visual-label">Recorded</p>
@@ -550,8 +673,28 @@ export default function App() {
               </div>
 
               <div className="route-map-shell">
-                <RouteMap polyline={routePolyline} title={selectedRoute.name} />
+                <RouteMap
+                  polyline={routePolyline}
+                  title={selectedRoute.name}
+                  streamPoints={chartPoints}
+                  onFocusPointChange={setFocusedProfilePoint}
+                  focusPoint={
+                    focusedProfilePoint?.lat != null && focusedProfilePoint?.lng != null
+                      ? { lat: focusedProfilePoint.lat, lng: focusedProfilePoint.lng }
+                      : null
+                  }
+                />
               </div>
+
+              <ElevationProfile
+                points={chartPoints}
+                title={chartTitle}
+                focusedPoint={focusedProfilePoint}
+                onFocusPointChange={setFocusedProfilePoint}
+              />
+
+              {visualLoading && !selectedRouteVisual && <p className="subtle">Loading route elevation profile...</p>}
+              {visualError && <p className="message error">{visualError}</p>}
 
               {selectedRoute.description && <p className="route-description">{selectedRoute.description}</p>}
 
@@ -618,7 +761,7 @@ export default function App() {
           <div className="activity-spotlight-copy">
             <p className="subtle">
               This is the most recent synced Strava activity currently cached by the app. The search panel below now searches both cached
-              activities and saved routes.
+              activities and saved routes, and pulls Strava photos plus elevation streams when you select an item.
             </p>
           </div>
         </div>
