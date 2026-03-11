@@ -1,0 +1,11 @@
+# Go
+backend/bin/
+backend/.env
+
+# Node
+frontend/node_modules/
+frontend/dist/
+
+# General
+.env
+.DS_Store

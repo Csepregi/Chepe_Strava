@@ -1,0 +1,13 @@
+# flyctl launch added from .gitignore
+# Go
+**/backend/bin
+**/backend/.env
+
+# Node
+**/frontend/node_modules
+**/frontend/dist
+
+# General
+**/.env
+**/.DS_Store
+fly.toml

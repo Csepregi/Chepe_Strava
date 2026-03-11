@@ -1,0 +1,34 @@
+# fly.toml app configuration file generated for strava-analytics-app on 2026-03-05T19:17:50+01:00
+#
+# See https://fly.io/docs/reference/configuration/ for information about how to use this file.
+#
+
+app = 'strava-analytics-app'
+primary_region = 'fra'
+
+[build]
+  dockerfile = 'Dockerfile'
+
+[env]
+  APP_ENV = 'production'
+  AWS_REGION = 'eu-central-1'
+  DDB_ACTIVITIES_BY_DATE_INDEX = 'athlete_start_idx'
+  DDB_ACTIVITIES_TABLE = 'strava-activities'
+  DDB_ATHLETES_TABLE = 'strava-athletes'
+  DDB_ROUTES_TABLE = 'strava-routes'
+
+  PORT = '8080'
+  STATIC_DIR = '/app/frontend/dist'
+
+[http_service]
+  internal_port = 8080
+  force_https = true
+  auto_stop_machines = 'stop'
+  auto_start_machines = true
+  min_machines_running = 0
+  processes = ['app']
+
+[[vm]]
+  memory = '1gb'
+  cpus = 1
+  memory_mb = 1024
