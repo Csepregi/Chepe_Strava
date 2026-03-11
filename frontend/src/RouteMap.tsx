@@ -41,6 +41,13 @@ function nearestPointForEvent(map: any, points: Array<ProfilePoint & Required<Pi
   return nearest;
 }
 
+function setMapCursor(map: any, cursor: string) {
+  const canvas = typeof map?.getCanvas === 'function' ? map.getCanvas() : null;
+  if (canvas?.style) {
+    canvas.style.cursor = cursor;
+  }
+}
+
 function decodePolyline(encoded: string): Coordinate[] {
   const coordinates: Coordinate[] = [];
   let index = 0;
@@ -230,11 +237,11 @@ export default function RouteMap({
     };
 
     const handlePointerEnter = () => {
-      map.getCanvas().style.cursor = 'pointer';
+      setMapCursor(map, 'pointer');
     };
 
     const handlePointerLeave = () => {
-      map.getCanvas().style.cursor = '';
+      setMapCursor(map, '');
       onFocusPointChange(null);
     };
 
@@ -250,7 +257,7 @@ export default function RouteMap({
       map.off('touchstart', routeLayerID, handlePointerFocus);
       map.off('touchmove', routeLayerID, handlePointerFocus);
       map.off('mouseleave', routeLayerID, handlePointerLeave);
-      map.getCanvas().style.cursor = '';
+      setMapCursor(map, '');
     };
   }, [mapReady, onFocusPointChange, streamPoints]);
 
