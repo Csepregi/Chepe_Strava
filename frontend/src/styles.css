@@ -81,7 +81,6 @@ body {
 }
 
 .hero-panel h1,
-.topbar h1,
 .section-head h2,
 .calendar-head h2,
 .activity-detail-empty h2 {
@@ -122,22 +121,13 @@ body {
 
 .topbar {
   display: flex;
-  justify-content: space-between;
-  gap: 1rem;
+  justify-content: flex-end;
+  gap: 0.75rem;
   align-items: center;
-  padding: 1rem 1.2rem;
+  padding: 0.75rem 1rem;
   background:
     linear-gradient(135deg, rgba(255, 255, 255, 0.94), rgba(250, 244, 232, 0.82)),
     radial-gradient(circle at 100% 0%, rgba(252, 76, 2, 0.08), transparent 30%);
-}
-
-.topbar-brand {
-  display: grid;
-  gap: 0.3rem;
-}
-
-.topbar h1 {
-  font-size: clamp(1.8rem, 4vw, 2.7rem);
 }
 
 .action-dock {
@@ -171,33 +161,15 @@ body {
   justify-content: flex-end;
 }
 
-.latest-activity-panel,
 .activity-detail-panel,
 .calendar-panel {
   display: grid;
   gap: 1rem;
 }
-
-.latest-activity-layout {
-  display: grid;
-  gap: 1rem;
-  align-items: stretch;
-}
-
-.latest-activity-layout.has-photo {
-  grid-template-columns: minmax(0, 1.35fr) minmax(300px, 0.85fr);
-}
-
-.latest-activity-layout.map-only {
-  grid-template-columns: 1fr;
-}
-
-.latest-map-shell,
 .detail-map-shell {
   min-height: 420px;
 }
 
-.latest-photo-card,
 .detail-photo-panel,
 .detail-stats-panel {
   display: grid;
@@ -208,7 +180,6 @@ body {
   background: var(--panel-strong);
 }
 
-.latest-photo-copy,
 .detail-photo-copy {
   display: grid;
   gap: 0.35rem;
@@ -224,12 +195,6 @@ body {
 .activity-detail-empty {
   min-height: 220px;
   align-content: center;
-}
-
-.detail-support-grid {
-  display: grid;
-  gap: 1rem;
-  grid-template-columns: minmax(0, 1.2fr) minmax(320px, 0.8fr);
 }
 
 .detail-stats-grid {
@@ -263,6 +228,7 @@ body {
 
 .detail-photo-panel {
   align-content: start;
+  grid-template-columns: minmax(0, 1fr);
 }
 
 .detail-photo-empty {
@@ -436,7 +402,6 @@ body {
 .calendar-activity-copy strong,
 .detail-stat-card strong,
 .detail-description-card strong,
-.latest-photo-copy strong,
 .detail-photo-copy strong,
 .detail-photo-empty strong {
   font-weight: 700;
@@ -821,12 +786,9 @@ body {
 }
 
 @media (max-width: 1100px) {
-  .latest-activity-layout.has-photo,
-  .detail-support-grid,
   .calendar-head,
   .section-head,
-  .hero-shell,
-  .topbar {
+  .hero-shell {
     grid-template-columns: 1fr;
     flex-direction: column;
   }
@@ -836,7 +798,6 @@ body {
     justify-content: flex-start;
   }
 
-  .detail-stats-grid,
   .weekly-stat-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
@@ -855,6 +816,10 @@ body {
   .panel {
     border-radius: 22px;
     padding: 0.95rem;
+  }
+
+  .topbar {
+    justify-content: stretch;
   }
 
   .action-dock {
@@ -887,7 +852,6 @@ body {
   .route-map,
   .route-map-empty,
   .route-map-live,
-  .latest-map-shell,
   .detail-map-shell {
     min-height: 280px;
   }
@@ -898,7 +862,6 @@ body {
     padding: 1.3rem;
   }
 
-  .topbar h1,
   .section-head h2,
   .calendar-head h2 {
     font-size: 1.7rem;

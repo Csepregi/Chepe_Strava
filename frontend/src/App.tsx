@@ -46,10 +46,6 @@ type RouteSyncResponse = {
   skipped_routes: number;
 };
 
-type LatestActivityResponse = {
-  activity: Activity | null;
-};
-
 type ActivityVisualResponse = {
   description: string;
   photo_count: number;
@@ -277,7 +273,6 @@ function activityTypeMeta(type: string): ActivityTone {
 export default function App() {
   const [me, setMe] = useState<MeResponse | null>(null);
   const [activities, setActivities] = useState<Activity[]>([]);
-  const [latestActivity, setLatestActivity] = useState<Activity | null>(null);
   const [selectedWeekKey, setSelectedWeekKey] = useState<string>(startOfWeekKey(new Date()));
   const [selectedActivityId, setSelectedActivityId] = useState<number | null>(null);
   const [loading, setLoading] = useState<boolean>(true);
@@ -298,7 +293,7 @@ export default function App() {
     [activities],
   );
 
-  const latestSyncedActivity = me ? sortedActivities[0] ?? null : latestActivity;
+  const latestSyncedActivity = sortedActivities[0] ?? null;
   const latestWeekKey = latestSyncedActivity ? startOfWeekKey(new Date(latestSyncedActivity.start_date)) : todayWeekKey;
   const weekOptions = useMemo(
     () => buildWeekOptions(sortedActivities, [todayWeekKey, latestWeekKey, selectedWeekKey]),
@@ -316,9 +311,7 @@ export default function App() {
     weekActivities.find((activity) => activity.id === selectedActivityId) ??
     null;
   const selectedActivityVisual = selectedActivity ? activityVisuals[activityResultKey(selectedActivity)] ?? null : null;
-  const latestActivityVisual = latestSyncedActivity ? activityVisuals[activityResultKey(latestSyncedActivity)] ?? null : null;
   const selectedVisualKey = selectedActivity ? activityResultKey(selectedActivity) : null;
-  const latestVisualKey = latestSyncedActivity ? activityResultKey(latestSyncedActivity) : null;
   const selectedWeekIndex = weekOptions.findIndex((option) => option.key === selectedWeekKey);
   const newerWeek = selectedWeekIndex > 0 ? weekOptions[selectedWeekIndex - 1] : null;
   const olderWeek = selectedWeekIndex >= 0 && selectedWeekIndex < weekOptions.length - 1 ? weekOptions[selectedWeekIndex + 1] : null;
@@ -336,11 +329,6 @@ export default function App() {
     return grouped;
   }, [weekActivities]);
 
-  const loadLatestActivity = async (): Promise<void> => {
-    const payload = await apiRequest<LatestActivityResponse>('/api/public/latest-activity');
-    setLatestActivity(payload.activity);
-  };
-
   const loadDashboard = async (): Promise<void> => {
     const [mePayload, activitiesPayload] = await Promise.all([
       apiRequest<MeResponse>('/api/me'),
@@ -354,7 +342,6 @@ export default function App() {
 
     setMe(mePayload);
     setActivities(nextActivities);
-    setLatestActivity(nextLatest);
     setSelectedWeekKey((current) => {
       if (!nextLatest) {
         return current;
@@ -398,9 +385,6 @@ export default function App() {
       setActivities([]);
       setSelectedActivityId(null);
       setSelectedWeekKey(todayWeekKey);
-      await loadLatestActivity().catch((latestError) => {
-        setErrorMessage((latestError as Error).message);
-      });
     } finally {
       setLoading(false);
     }
@@ -437,11 +421,10 @@ export default function App() {
       return;
     }
 
-    const targets = [latestSyncedActivity, selectedActivity].filter((activity): activity is Activity => activity !== null);
-    for (const activity of targets) {
-      void loadActivityVisual(activity);
+    if (selectedActivity) {
+      void loadActivityVisual(selectedActivity);
     }
-  }, [latestSyncedActivity, me, selectedActivity]);
+  }, [me, selectedActivity]);
 
   const handleSync = async (): Promise<void> => {
     setSyncing(true);
@@ -492,7 +475,6 @@ export default function App() {
       setActivityVisuals({});
       setVisualErrors({});
       setVisualLoadingKeys({});
-      await loadLatestActivity();
       setStatusMessage('Logged out.');
     } catch (error) {
       setErrorMessage((error as Error).message);
@@ -506,69 +488,6 @@ export default function App() {
   const selectActivity = (activity: Activity) => {
     setSelectedWeekKey(startOfWeekKey(new Date(activity.start_date)));
     setSelectedActivityId(activity.id);
-  };
-
-  const renderLatestActivity = (showMedia: boolean) => {
-    if (!latestSyncedActivity) {
-      return null;
-    }
-
-    const polyline = latestSyncedActivity.map_polyline || latestSyncedActivity.summary_polyline || '';
-    const hasPhoto = showMedia && Boolean(latestActivityVisual?.primary_photo_url);
-    const latestVisualLoading = latestVisualKey ? visualLoadingKeys[latestVisualKey] : false;
-    const latestVisualError = latestVisualKey ? visualErrors[latestVisualKey] : '';
-
-    return (
-      <section className="panel latest-activity-panel">
-        <div className="section-head">
-          <div>
-            <p className="kicker">Latest Activity</p>
-            <h2>{latestSyncedActivity.name}</h2>
-            <p className="subtle">
-              {latestSyncedActivity.type} · {formatActivityDateTime(latestSyncedActivity.start_date)}
-            </p>
-          </div>
-          <div className="pill-row">
-            <span className="route-pill strong">{formatDistance(latestSyncedActivity.distance_meters)}</span>
-            <span className="route-pill">{formatDuration(latestSyncedActivity.moving_time_seconds)}</span>
-            <span className="route-pill">{Math.round(latestSyncedActivity.total_elevation_gain)} m climb</span>
-            <span className="route-pill">{formatPace(latestSyncedActivity.distance_meters, latestSyncedActivity.moving_time_seconds)}</span>
-          </div>
-        </div>
-
-        {latestVisualError && <p className="message error">{latestVisualError}</p>}
-
-        <div className={`latest-activity-layout ${hasPhoto ? 'has-photo' : 'map-only'}`}>
-          <div className="route-map-shell latest-map-shell">
-            <RouteMap polyline={polyline} title={latestSyncedActivity.name} />
-          </div>
-
-          {hasPhoto && (
-            <article className="latest-photo-card">
-              <img
-                className="detail-media-image"
-                src={latestActivityVisual?.primary_photo_url}
-                alt={latestSyncedActivity.name}
-              />
-              <div className="latest-photo-copy">
-                <p className="route-visual-label">Latest Media</p>
-                <strong>
-                  {latestActivityVisual?.photo_count
-                    ? `${latestActivityVisual.photo_count} photo${latestActivityVisual.photo_count === 1 ? '' : 's'}`
-                    : 'Primary photo'}
-                </strong>
-                <p className="subtle">
-                  The latest synced activity includes Strava media, so the spotlight keeps both the route context and the photo visible.
-                </p>
-              </div>
-            </article>
-          )}
-        </div>
-
-        {showMedia && latestVisualLoading && !latestActivityVisual && <p className="subtle">Loading Strava media...</p>}
-        {latestActivityVisual?.description && <p className="activity-note">{latestActivityVisual.description}</p>}
-      </section>
-    );
   };
 
   const renderSelectedActivityDetail = () => {
@@ -634,74 +553,72 @@ export default function App() {
           onFocusPointChange={setFocusedProfilePoint}
         />
 
-        <div className="detail-support-grid">
-          <article className="detail-stats-panel">
-            <div className="detail-stats-grid">
-              <div className="detail-stat-card">
-                <p className="route-visual-label">Distance</p>
-                <strong>{formatDistance(selectedActivity.distance_meters)}</strong>
-              </div>
-              <div className="detail-stat-card">
-                <p className="route-visual-label">Moving Time</p>
-                <strong>{formatDuration(selectedActivity.moving_time_seconds)}</strong>
-              </div>
-              <div className="detail-stat-card">
-                <p className="route-visual-label">Elevation</p>
-                <strong>{Math.round(selectedActivity.total_elevation_gain)} m</strong>
-              </div>
-              <div className="detail-stat-card">
-                <p className="route-visual-label">Pace</p>
-                <strong>{formatPace(selectedActivity.distance_meters, selectedActivity.moving_time_seconds)}</strong>
-              </div>
-              <div className="detail-stat-card">
-                <p className="route-visual-label">Average Speed</p>
-                <strong>{formatSpeed(selectedActivity.average_speed)}</strong>
-              </div>
-              <div className="detail-stat-card">
-                <p className="route-visual-label">Max Speed</p>
-                <strong>{formatSpeed(selectedActivity.max_speed)}</strong>
-              </div>
+        <article className="detail-stats-panel">
+          <div className="detail-stats-grid">
+            <div className="detail-stat-card">
+              <p className="route-visual-label">Distance</p>
+              <strong>{formatDistance(selectedActivity.distance_meters)}</strong>
             </div>
+            <div className="detail-stat-card">
+              <p className="route-visual-label">Moving Time</p>
+              <strong>{formatDuration(selectedActivity.moving_time_seconds)}</strong>
+            </div>
+            <div className="detail-stat-card">
+              <p className="route-visual-label">Elevation</p>
+              <strong>{Math.round(selectedActivity.total_elevation_gain)} m</strong>
+            </div>
+            <div className="detail-stat-card">
+              <p className="route-visual-label">Pace</p>
+              <strong>{formatPace(selectedActivity.distance_meters, selectedActivity.moving_time_seconds)}</strong>
+            </div>
+            <div className="detail-stat-card">
+              <p className="route-visual-label">Average Speed</p>
+              <strong>{formatSpeed(selectedActivity.average_speed)}</strong>
+            </div>
+            <div className="detail-stat-card">
+              <p className="route-visual-label">Max Speed</p>
+              <strong>{formatSpeed(selectedActivity.max_speed)}</strong>
+            </div>
+          </div>
 
-            {selectedActivityVisual?.description ? (
-              <div className="detail-description-card">
-                <p className="route-visual-label">Description</p>
-                <p className="activity-note">{selectedActivityVisual.description}</p>
-              </div>
-            ) : (
-              <div className="detail-description-card">
-                <p className="route-visual-label">Recorded</p>
-                <strong>{formatActivityDateTime(selectedActivity.start_date)}</strong>
-                <p className="subtle">{selectedActivity.timezone || 'Timezone unavailable'}</p>
-              </div>
-            )}
-          </article>
+          {selectedActivityVisual?.description ? (
+            <div className="detail-description-card">
+              <p className="route-visual-label">Description</p>
+              <p className="activity-note">{selectedActivityVisual.description}</p>
+            </div>
+          ) : (
+            <div className="detail-description-card">
+              <p className="route-visual-label">Recorded</p>
+              <strong>{formatActivityDateTime(selectedActivity.start_date)}</strong>
+              <p className="subtle">{selectedActivity.timezone || 'Timezone unavailable'}</p>
+            </div>
+          )}
+        </article>
 
-          <article className="detail-photo-panel">
-            {selectedActivityVisual?.primary_photo_url ? (
-              <>
-                <img
-                  className="detail-media-image"
-                  src={selectedActivityVisual.primary_photo_url}
-                  alt={selectedActivity.name}
-                />
-                <div className="detail-photo-copy">
-                  <p className="route-visual-label">Photos</p>
-                  <strong>
-                    {selectedActivityVisual.photo_count} photo{selectedActivityVisual.photo_count === 1 ? '' : 's'}
-                  </strong>
-                  <p className="subtle">Strava exposes the activity’s primary image here along with the elevation stream.</p>
-                </div>
-              </>
-            ) : (
-              <div className="detail-photo-empty">
+        <article className="detail-photo-panel">
+          {selectedActivityVisual?.primary_photo_url ? (
+            <>
+              <img
+                className="detail-media-image"
+                src={selectedActivityVisual.primary_photo_url}
+                alt={selectedActivity.name}
+              />
+              <div className="detail-photo-copy">
                 <p className="route-visual-label">Photos</p>
-                <strong>No Strava photo available</strong>
-                <p className="subtle">This activity still keeps the full-width route map and elevation profile above, even when no media was attached.</p>
+                <strong>
+                  {selectedActivityVisual.photo_count} photo{selectedActivityVisual.photo_count === 1 ? '' : 's'}
+                </strong>
+                <p className="subtle">Strava exposes the activity’s primary image here along with the elevation stream.</p>
               </div>
-            )}
-          </article>
-        </div>
+            </>
+          ) : (
+            <div className="detail-photo-empty">
+              <p className="route-visual-label">Photos</p>
+              <strong>No Strava photo available</strong>
+              <p className="subtle">This activity still keeps the full-width route map and elevation profile above, even when no media was attached.</p>
+            </div>
+          )}
+        </article>
       </section>
     );
   };
@@ -862,8 +779,6 @@ export default function App() {
           </div>
         </section>
 
-        {renderLatestActivity(false)}
-
         {(statusMessage || errorMessage) && (
           <section className="panel messages">
             {statusMessage && <p className="message ok">{statusMessage}</p>}
@@ -877,12 +792,6 @@ export default function App() {
   return (
     <main className="app-shell">
       <header className="topbar panel">
-        <div className="topbar-brand">
-          <p className="kicker">Strava Weekly Dashboard</p>
-          <h1>StrideScope</h1>
-          <p className="subtle">Maps, elevation, photos, and weekly planning in one flow.</p>
-        </div>
-
         <div className="action-dock">
           <button className="btn secondary" onClick={handleSync} disabled={syncing}>
             {syncing ? 'Syncing activities...' : 'Sync Activities'}
@@ -903,7 +812,6 @@ export default function App() {
         </section>
       )}
 
-      {renderLatestActivity(true)}
       {renderSelectedActivityDetail()}
       {renderWeeklyCalendar()}
     </main>
