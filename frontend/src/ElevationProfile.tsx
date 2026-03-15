@@ -7,11 +7,18 @@ export type ProfilePoint = {
   lng?: number | null;
 };
 
+export type ProfileSummaryCard = {
+  label: string;
+  value: string;
+  detail?: string;
+};
+
 type ElevationProfileProps = {
   points: ProfilePoint[];
   title: string;
   focusedPoint?: ProfilePoint | null;
   onFocusPointChange?: (point: ProfilePoint | null) => void;
+  summaryCards?: ProfileSummaryCard[];
 };
 
 type ProfileAnnotation = {
@@ -19,8 +26,6 @@ type ProfileAnnotation = {
   label: string;
   distance_meters: number;
   altitude_meters: number;
-  gain_meters: number;
-  grade_percent: number | null;
 };
 
 const viewWidth = 920;
@@ -38,13 +43,6 @@ function formatDistance(distanceMeters: number): string {
 
 function formatAltitude(altitudeMeters: number): string {
   return `${Math.round(altitudeMeters)} m`;
-}
-
-function formatGrade(gradePercent: number | null): string {
-  if (gradePercent === null || !Number.isFinite(gradePercent)) {
-    return 'Grade unavailable';
-  }
-  return `${gradePercent.toFixed(1)}% avg`;
 }
 
 function buildAltitudeTicks(minAltitude: number, maxAltitude: number): number[] {
@@ -109,17 +107,11 @@ function detectAnnotations(points: ProfilePoint[]): ProfileAnnotation[] {
       continue;
     }
 
-    const gain = currentAltitude - points[leftLowIndex].altitude_meters;
-    const climbDistance = points[index].distance_meters - points[leftLowIndex].distance_meters;
-    const grade = climbDistance >= 500 ? (gain / climbDistance) * 100 : null;
-
     candidates.push({
       id: `peak-${index}`,
       label: 'Climb',
       distance_meters: points[index].distance_meters,
       altitude_meters: currentAltitude,
-      gain_meters: Math.max(gain, 0),
-      grade_percent: grade,
       prominence,
     });
   }
@@ -134,8 +126,6 @@ function detectAnnotations(points: ProfilePoint[]): ProfileAnnotation[] {
     label: 'High point',
     distance_meters: highestPoint.distance_meters,
     altitude_meters: highestPoint.altitude_meters,
-    gain_meters: 0,
-    grade_percent: null,
     prominence: highestPoint.altitude_meters - minAltitude,
   };
   candidates.push(highestCandidate);
@@ -164,7 +154,13 @@ function detectAnnotations(points: ProfilePoint[]): ProfileAnnotation[] {
   }));
 }
 
-export default function ElevationProfile({ points, title, focusedPoint = null, onFocusPointChange }: ElevationProfileProps) {
+export default function ElevationProfile({
+  points,
+  title,
+  focusedPoint = null,
+  onFocusPointChange,
+  summaryCards,
+}: ElevationProfileProps) {
   const [activeIndex, setActiveIndex] = useState<number | null>(null);
   const gradientId = useId().replace(/:/g, '');
   const patternId = `${gradientId}-contours`;
@@ -224,7 +220,7 @@ export default function ElevationProfile({ points, title, focusedPoint = null, o
   const activeX = activePoint ? metrics.xForDistance(activePoint.distance_meters) : null;
   const activeY = activePoint ? metrics.yForAltitude(activePoint.altitude_meters) : null;
 
-  const summaryCards = [
+  const defaultSummaryCards: ProfileSummaryCard[] = [
     {
       label: 'Start',
       value: formatAltitude(points[0].altitude_meters),
@@ -350,29 +346,14 @@ export default function ElevationProfile({ points, title, focusedPoint = null, o
       </svg>
 
       <div className="profile-summary">
-        {summaryCards.map((card) => (
+        {(summaryCards ?? defaultSummaryCards).map((card) => (
           <div key={card.label} className="profile-summary-card">
             <p className="profile-summary-label">{card.label}</p>
             <strong>{card.value}</strong>
-            <span className="profile-summary-detail">{card.detail}</span>
+            {card.detail ? <span className="profile-summary-detail">{card.detail}</span> : null}
           </div>
         ))}
       </div>
-
-      {metrics.annotations.length > 0 && (
-        <div className="profile-climb-strip">
-          {metrics.annotations.map((annotation) => (
-            <div key={`${annotation.id}-chip`} className="profile-climb-chip">
-              <p className="profile-summary-label">{annotation.label}</p>
-              <strong>{formatAltitude(annotation.altitude_meters)}</strong>
-              <span className="profile-summary-detail">
-                {formatDistance(annotation.distance_meters)} · {annotation.gain_meters > 0 ? `+${Math.round(annotation.gain_meters)} m` : 'Key summit'}
-              </span>
-              <span className="profile-summary-detail">{formatGrade(annotation.grade_percent)}</span>
-            </div>
-          ))}
-        </div>
-      )}
     </div>
   );
 }

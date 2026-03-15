@@ -1,6 +1,8 @@
 import { useEffect, useMemo, useState } from 'react';
-import ElevationProfile, { type ProfilePoint } from './ElevationProfile';
+import BrandMark from './BrandMark';
+import ElevationProfile, { type ProfilePoint, type ProfileSummaryCard } from './ElevationProfile';
 import RouteMap from './RouteMap';
+import TrendsPanel, { type TrendsResponse } from './TrendsPanel';
 
 type Athlete = {
   id: number;
@@ -111,18 +113,6 @@ function formatDistance(meters: number): string {
   return `${(meters / 1000).toFixed(1)} km`;
 }
 
-function formatPace(distanceMeters: number, movingSeconds: number): string {
-  if (distanceMeters <= 0 || movingSeconds <= 0) {
-    return '-';
-  }
-  const secondsPerKm = movingSeconds / (distanceMeters / 1000);
-  const paceMin = Math.floor(secondsPerKm / 60);
-  const paceSec = Math.round(secondsPerKm % 60)
-    .toString()
-    .padStart(2, '0');
-  return `${paceMin}:${paceSec} /km`;
-}
-
 function formatSpeed(metersPerSecond: number): string {
   if (metersPerSecond <= 0) {
     return '-';
@@ -206,6 +196,19 @@ function formatActivityTime(value: string): string {
   });
 }
 
+function formatLastUpdated(value: string | null): string {
+  if (!value) {
+    return 'just now';
+  }
+
+  return new Date(value).toLocaleString(undefined, {
+    month: 'short',
+    day: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit',
+  });
+}
+
 function buildWeekOptions(activities: Activity[], extraWeekKeys: string[]): WeekOption[] {
   const weeks = new Map<string, Date>();
 
@@ -270,16 +273,30 @@ function activityTypeMeta(type: string): ActivityTone {
   };
 }
 
+function logoutIcon() {
+  return (
+    <svg viewBox="0 0 20 20" className="logout-icon" aria-hidden="true">
+      <path
+        d="M11 3h4a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2h-4v-2h4V5h-4V3Zm-1 3 1.4 1.4-1.6 1.6H15v2H9.8l1.6 1.6L10 14l-4-4 4-4Z"
+        fill="currentColor"
+      />
+    </svg>
+  );
+}
+
 export default function App() {
   const [me, setMe] = useState<MeResponse | null>(null);
   const [activities, setActivities] = useState<Activity[]>([]);
   const [selectedWeekKey, setSelectedWeekKey] = useState<string>(startOfWeekKey(new Date()));
   const [selectedActivityId, setSelectedActivityId] = useState<number | null>(null);
+  const [lastUpdatedAt, setLastUpdatedAt] = useState<string | null>(null);
+  const [analytics, setAnalytics] = useState<TrendsResponse | null>(null);
   const [loading, setLoading] = useState<boolean>(true);
   const [syncing, setSyncing] = useState<boolean>(false);
-  const [syncingRoutes, setSyncingRoutes] = useState<boolean>(false);
   const [statusMessage, setStatusMessage] = useState<string>('');
   const [errorMessage, setErrorMessage] = useState<string>('');
+  const [analyticsLoading, setAnalyticsLoading] = useState<boolean>(false);
+  const [analyticsError, setAnalyticsError] = useState<string>('');
   const [activityVisuals, setActivityVisuals] = useState<Record<string, ActivityVisualResponse>>({});
   const [visualLoadingKeys, setVisualLoadingKeys] = useState<Record<string, boolean>>({});
   const [visualErrors, setVisualErrors] = useState<Record<string, string>>({});
@@ -295,6 +312,8 @@ export default function App() {
 
   const latestSyncedActivity = sortedActivities[0] ?? null;
   const latestWeekKey = latestSyncedActivity ? startOfWeekKey(new Date(latestSyncedActivity.start_date)) : todayWeekKey;
+  const athleteNameParts = me ? [me.athlete.firstname, me.athlete.lastname].filter(Boolean) : [];
+  const athleteName = athleteNameParts.length > 0 ? athleteNameParts.join(' ') : me?.athlete.username || 'Chepe';
   const weekOptions = useMemo(
     () => buildWeekOptions(sortedActivities, [todayWeekKey, latestWeekKey, selectedWeekKey]),
     [latestWeekKey, selectedWeekKey, sortedActivities, todayWeekKey],
@@ -342,6 +361,7 @@ export default function App() {
 
     setMe(mePayload);
     setActivities(nextActivities);
+    setLastUpdatedAt(new Date().toISOString());
     setSelectedWeekKey((current) => {
       if (!nextLatest) {
         return current;
@@ -349,6 +369,21 @@ export default function App() {
       return current === todayWeekKey ? startOfWeekKey(new Date(nextLatest.start_date)) : current;
     });
     setSelectedActivityId((current) => current ?? nextLatest?.id ?? null);
+  };
+
+  const loadAnalytics = async (): Promise<void> => {
+    setAnalyticsLoading(true);
+    setAnalyticsError('');
+
+    try {
+      const payload = await apiRequest<TrendsResponse>('/api/analytics/trends');
+      setAnalytics(payload);
+    } catch (error) {
+      setAnalytics(null);
+      setAnalyticsError((error as Error).message);
+    } finally {
+      setAnalyticsLoading(false);
+    }
   };
 
   const loadActivityVisual = async (activity: Activity): Promise<void> => {
@@ -373,9 +408,11 @@ export default function App() {
   const initialize = async (): Promise<void> => {
     setLoading(true);
     setErrorMessage('');
+    setAnalyticsError('');
 
     try {
       await loadDashboard();
+      await loadAnalytics();
     } catch (error) {
       const message = (error as Error).message;
       if (message !== 'unauthorized') {
@@ -383,6 +420,8 @@ export default function App() {
       }
       setMe(null);
       setActivities([]);
+      setAnalytics(null);
+      setLastUpdatedAt(null);
       setSelectedActivityId(null);
       setSelectedWeekKey(todayWeekKey);
     } finally {
@@ -417,49 +456,44 @@ export default function App() {
   }, [selectedActivityId]);
 
   useEffect(() => {
-    if (!me) {
+    if (!me || !selectedActivity) {
       return;
     }
 
-    if (selectedActivity) {
-      void loadActivityVisual(selectedActivity);
-    }
+    void loadActivityVisual(selectedActivity);
   }, [me, selectedActivity]);
 
-  const handleSync = async (): Promise<void> => {
+  const handleSyncAll = async (): Promise<void> => {
     setSyncing(true);
     setErrorMessage('');
     setStatusMessage('');
 
     try {
-      const response = await apiRequest<SyncResponse>('/api/activities/sync', {
+      const activityResponse = await apiRequest<SyncResponse>('/api/activities/sync', {
         method: 'POST',
         body: JSON.stringify({ after_days: 365 }),
       });
-      setStatusMessage(`Synced ${response.fetched_activities} activities across ${response.pages_fetched} page(s).`);
+
+      let routeSummary = '';
+      try {
+        const routeResponse = await apiRequest<RouteSyncResponse>('/api/routes/sync', {
+          method: 'POST',
+        });
+        const skipped = routeResponse.skipped_routes > 0 ? `, skipped ${routeResponse.skipped_routes}` : '';
+        routeSummary = ` Routes: ${routeResponse.synced_routes}${skipped}.`;
+      } catch (routeError) {
+        routeSummary = ` Route sync could not finish: ${(routeError as Error).message}.`;
+      }
+
       await loadDashboard();
+      await loadAnalytics();
+      setStatusMessage(
+        `Synced ${activityResponse.fetched_activities} activities across ${activityResponse.pages_fetched} page(s).${routeSummary}`,
+      );
     } catch (error) {
       setErrorMessage((error as Error).message);
     } finally {
       setSyncing(false);
-    }
-  };
-
-  const handleSyncRoutes = async (): Promise<void> => {
-    setSyncingRoutes(true);
-    setErrorMessage('');
-    setStatusMessage('');
-
-    try {
-      const response = await apiRequest<RouteSyncResponse>('/api/routes/sync', {
-        method: 'POST',
-      });
-      const skipped = response.skipped_routes > 0 ? ` Skipped ${response.skipped_routes}.` : '';
-      setStatusMessage(`Synced ${response.synced_routes} routes.${skipped}`);
-    } catch (error) {
-      setErrorMessage((error as Error).message);
-    } finally {
-      setSyncingRoutes(false);
     }
   };
 
@@ -470,6 +504,8 @@ export default function App() {
       await apiRequest<{ status: string }>('/api/auth/logout', { method: 'POST' });
       setMe(null);
       setActivities([]);
+      setAnalytics(null);
+      setLastUpdatedAt(null);
       setSelectedActivityId(null);
       setSelectedWeekKey(todayWeekKey);
       setActivityVisuals({});
@@ -500,7 +536,7 @@ export default function App() {
         <section className="panel activity-detail-panel activity-detail-empty">
           <p className="kicker">Activity Detail</p>
           <h2>No activity selected for this week</h2>
-          <p className="subtle">Choose a week with activity or click any item in the calendar to load the map, elevation profile, stats, and photos.</p>
+          <p className="subtle">Choose a week with activity or click any item in the calendar to load the route map, elevation profile, stats, and photos.</p>
         </section>
       );
     }
@@ -509,6 +545,13 @@ export default function App() {
     const chartPoints = selectedActivityVisual?.stream_points ?? [];
     const selectedVisualLoading = selectedVisualKey ? visualLoadingKeys[selectedVisualKey] : false;
     const selectedVisualError = selectedVisualKey ? visualErrors[selectedVisualKey] : '';
+    const profileSummaryCards: ProfileSummaryCard[] = [
+      { label: 'Average Speed', value: formatSpeed(selectedActivity.average_speed) },
+      { label: 'Max Speed', value: formatSpeed(selectedActivity.max_speed) },
+      { label: 'Distance', value: formatDistance(selectedActivity.distance_meters) },
+      { label: 'Time', value: formatDuration(selectedActivity.moving_time_seconds) },
+      { label: 'Elevation', value: `${Math.round(selectedActivity.total_elevation_gain)} m` },
+    ];
 
     return (
       <section className="panel activity-detail-panel">
@@ -524,7 +567,6 @@ export default function App() {
             <span className="route-pill strong">{formatDistance(selectedActivity.distance_meters)}</span>
             <span className="route-pill">{formatDuration(selectedActivity.moving_time_seconds)}</span>
             <span className="route-pill">{Math.round(selectedActivity.total_elevation_gain)} m climb</span>
-            <span className="route-pill">{formatPace(selectedActivity.distance_meters, selectedActivity.moving_time_seconds)}</span>
           </div>
         </div>
 
@@ -551,55 +593,14 @@ export default function App() {
           title={selectedActivity.name}
           focusedPoint={focusedProfilePoint}
           onFocusPointChange={setFocusedProfilePoint}
+          summaryCards={profileSummaryCards}
         />
-
-        <article className="detail-stats-panel">
-          <div className="detail-stats-grid">
-            <div className="detail-stat-card">
-              <p className="route-visual-label">Distance</p>
-              <strong>{formatDistance(selectedActivity.distance_meters)}</strong>
-            </div>
-            <div className="detail-stat-card">
-              <p className="route-visual-label">Moving Time</p>
-              <strong>{formatDuration(selectedActivity.moving_time_seconds)}</strong>
-            </div>
-            <div className="detail-stat-card">
-              <p className="route-visual-label">Elevation</p>
-              <strong>{Math.round(selectedActivity.total_elevation_gain)} m</strong>
-            </div>
-            <div className="detail-stat-card">
-              <p className="route-visual-label">Pace</p>
-              <strong>{formatPace(selectedActivity.distance_meters, selectedActivity.moving_time_seconds)}</strong>
-            </div>
-            <div className="detail-stat-card">
-              <p className="route-visual-label">Average Speed</p>
-              <strong>{formatSpeed(selectedActivity.average_speed)}</strong>
-            </div>
-            <div className="detail-stat-card">
-              <p className="route-visual-label">Max Speed</p>
-              <strong>{formatSpeed(selectedActivity.max_speed)}</strong>
-            </div>
-          </div>
-
-          {selectedActivityVisual?.description ? (
-            <div className="detail-description-card">
-              <p className="route-visual-label">Description</p>
-              <p className="activity-note">{selectedActivityVisual.description}</p>
-            </div>
-          ) : (
-            <div className="detail-description-card">
-              <p className="route-visual-label">Recorded</p>
-              <strong>{formatActivityDateTime(selectedActivity.start_date)}</strong>
-              <p className="subtle">{selectedActivity.timezone || 'Timezone unavailable'}</p>
-            </div>
-          )}
-        </article>
 
         <article className="detail-photo-panel">
           {selectedActivityVisual?.primary_photo_url ? (
             <>
               <img
-                className="detail-media-image"
+                className="detail-media-image detail-media-image-wide"
                 src={selectedActivityVisual.primary_photo_url}
                 alt={selectedActivity.name}
               />
@@ -608,14 +609,18 @@ export default function App() {
                 <strong>
                   {selectedActivityVisual.photo_count} photo{selectedActivityVisual.photo_count === 1 ? '' : 's'}
                 </strong>
-                <p className="subtle">Strava exposes the activity’s primary image here along with the elevation stream.</p>
+                <p className="subtle">
+                  {selectedActivityVisual.description || `Recorded ${formatActivityDateTime(selectedActivity.start_date)} · ${selectedActivity.timezone || 'Timezone unavailable'}`}
+                </p>
               </div>
             </>
           ) : (
             <div className="detail-photo-empty">
               <p className="route-visual-label">Photos</p>
               <strong>No Strava photo available</strong>
-              <p className="subtle">This activity still keeps the full-width route map and elevation profile above, even when no media was attached.</p>
+              <p className="subtle">
+                {selectedActivityVisual?.description || `Recorded ${formatActivityDateTime(selectedActivity.start_date)} · ${selectedActivity.timezone || 'Timezone unavailable'}`}
+              </p>
             </div>
           )}
         </article>
@@ -791,16 +796,25 @@ export default function App() {
 
   return (
     <main className="app-shell">
-      <header className="topbar panel">
-        <div className="action-dock">
-          <button className="btn secondary" onClick={handleSync} disabled={syncing}>
-            {syncing ? 'Syncing activities...' : 'Sync Activities'}
+      <header className="panel topbar topbar-dark">
+        <div className="header-brand">
+          <BrandMark />
+          <div className="header-copy">
+            <strong>{athleteName}</strong>
+            <span>Chepe&apos;s Adventures</span>
+            <small>Last updated {formatLastUpdated(lastUpdatedAt)}</small>
+          </div>
+        </div>
+
+        <div className="action-dock action-dock-dark">
+          <a className="btn ghost nav-action" href={authUrl}>
+            Connect My Strava
+          </a>
+          <button className="btn primary nav-action" onClick={handleSyncAll} disabled={syncing}>
+            {syncing ? 'Syncing...' : 'Sync'}
           </button>
-          <button className="btn secondary" onClick={handleSyncRoutes} disabled={syncingRoutes}>
-            {syncingRoutes ? 'Syncing routes...' : 'Sync Routes'}
-          </button>
-          <button className="btn ghost" onClick={handleLogout}>
-            Log Out
+          <button className="icon-btn logout-btn" onClick={handleLogout} aria-label="Log out" type="button">
+            {logoutIcon()}
           </button>
         </div>
       </header>
@@ -814,6 +828,7 @@ export default function App() {
 
       {renderSelectedActivityDetail()}
       {renderWeeklyCalendar()}
+      <TrendsPanel data={analytics} loading={analyticsLoading} error={analyticsError} />
     </main>
   );
 }

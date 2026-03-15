@@ -68,6 +68,30 @@ type routeVisualResponse struct {
 	StreamPoints []visualPoint `json:"stream_points"`
 }
 
+type analyticsTrendBucketResponse struct {
+	Label                   string   `json:"label"`
+	Start                   string   `json:"start"`
+	End                     string   `json:"end"`
+	ActivityCount           int      `json:"activity_count"`
+	DistanceMeters          float64  `json:"distance_meters"`
+	MovingTimeSeconds       int      `json:"moving_time_seconds"`
+	ElevationGain           float64  `json:"elevation_gain"`
+	AveragePaceSecondsPerKm *float64 `json:"average_pace_seconds_per_km,omitempty"`
+}
+
+type analyticsRecordsResponse struct {
+	BestPaceSecondsPerKm *float64 `json:"best_pace_seconds_per_km,omitempty"`
+	MostElevationGain    float64  `json:"most_elevation_gain"`
+	HighestMaxSpeed      float64  `json:"highest_max_speed"`
+	LongestDuration      int      `json:"longest_duration_seconds"`
+}
+
+type analyticsTrendsResponse struct {
+	Weekly  []analyticsTrendBucketResponse `json:"weekly"`
+	Monthly []analyticsTrendBucketResponse `json:"monthly"`
+	Records analyticsRecordsResponse       `json:"records"`
+}
+
 func New(cfg config.Config, dataStore *store.Store) *App {
 	staticDir := ""
 	if info, err := os.Stat(cfg.StaticDir); err == nil && info.IsDir() {
@@ -97,6 +121,7 @@ func (a *App) Handler() http.Handler {
 	mux.HandleFunc("POST /api/activities/sync", a.requireAuth(a.handleSyncActivities))
 	mux.HandleFunc("GET /api/activities", a.requireAuth(a.handleListActivities))
 	mux.HandleFunc("GET /api/analytics/summary", a.requireAuth(a.handleSummary))
+	mux.HandleFunc("GET /api/analytics/trends", a.requireAuth(a.handleTrends))
 	mux.HandleFunc("POST /api/routes/sync", a.requireAuth(a.handleSyncRoutes))
 	mux.HandleFunc("GET /api/routes/search", a.handleRouteSearch)
 	mux.HandleFunc("GET /api/routes/{routeID}/visual", a.handleRouteVisual)
@@ -361,6 +386,28 @@ func (a *App) handleSummary(w http.ResponseWriter, r *http.Request) {
 	}
 
 	writeJSON(w, http.StatusOK, map[string]any{"days": days, "summary": summary})
+}
+
+func (a *App) handleTrends(w http.ResponseWriter, r *http.Request) {
+	athleteID, ok := athleteIDFromContext(r.Context())
+	if !ok {
+		writeError(w, http.StatusUnauthorized, "unauthorized")
+		return
+	}
+
+	activities, err := a.store.ListAllActivities(r.Context(), athleteID)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to load trend data")
+		return
+	}
+
+	payload := analyticsTrendsResponse{
+		Weekly:  buildWeeklyTrendBuckets(activities, 10, time.Now().UTC()),
+		Monthly: buildMonthlyTrendBuckets(activities, 12, time.Now().UTC()),
+		Records: buildAnalyticsRecords(activities),
+	}
+
+	writeJSON(w, http.StatusOK, payload)
 }
 
 func (a *App) handleSyncRoutes(w http.ResponseWriter, r *http.Request) {
@@ -771,4 +818,133 @@ func buildVisualPoints(streams strava.StreamSet) []visualPoint {
 	}
 
 	return points
+}
+
+func buildWeeklyTrendBuckets(activities []store.Activity, count int, now time.Time) []analyticsTrendBucketResponse {
+	currentStart := startOfWeekUTC(now)
+	buckets := make([]analyticsTrendBucketResponse, count)
+	indexByKey := make(map[string]int, count)
+
+	for index := 0; index < count; index++ {
+		start := currentStart.AddDate(0, 0, -7*(count-1-index))
+		end := start.AddDate(0, 0, 7)
+		key := start.Format("2006-01-02")
+		buckets[index] = analyticsTrendBucketResponse{
+			Label: start.Format("Jan 02"),
+			Start: start.Format(time.RFC3339),
+			End:   end.Format(time.RFC3339),
+		}
+		indexByKey[key] = index
+	}
+
+	for _, activity := range activities {
+		bucketStart := startOfWeekUTC(activity.StartDate.UTC())
+		key := bucketStart.Format("2006-01-02")
+		index, ok := indexByKey[key]
+		if !ok {
+			continue
+		}
+
+		buckets[index].ActivityCount++
+		buckets[index].DistanceMeters += activity.DistanceMeters
+		buckets[index].MovingTimeSeconds += activity.MovingTimeSeconds
+		buckets[index].ElevationGain += activity.ElevationGain
+	}
+
+	finalizeTrendBuckets(buckets)
+	return buckets
+}
+
+func buildMonthlyTrendBuckets(activities []store.Activity, count int, now time.Time) []analyticsTrendBucketResponse {
+	currentStart := startOfMonthUTC(now)
+	buckets := make([]analyticsTrendBucketResponse, count)
+	indexByKey := make(map[string]int, count)
+
+	for index := 0; index < count; index++ {
+		start := currentStart.AddDate(0, -(count - 1 - index), 0)
+		end := start.AddDate(0, 1, 0)
+		key := start.Format("2006-01")
+		buckets[index] = analyticsTrendBucketResponse{
+			Label: start.Format("Jan"),
+			Start: start.Format(time.RFC3339),
+			End:   end.Format(time.RFC3339),
+		}
+		indexByKey[key] = index
+	}
+
+	for _, activity := range activities {
+		bucketStart := startOfMonthUTC(activity.StartDate.UTC())
+		key := bucketStart.Format("2006-01")
+		index, ok := indexByKey[key]
+		if !ok {
+			continue
+		}
+
+		buckets[index].ActivityCount++
+		buckets[index].DistanceMeters += activity.DistanceMeters
+		buckets[index].MovingTimeSeconds += activity.MovingTimeSeconds
+		buckets[index].ElevationGain += activity.ElevationGain
+	}
+
+	finalizeTrendBuckets(buckets)
+	return buckets
+}
+
+func finalizeTrendBuckets(buckets []analyticsTrendBucketResponse) {
+	for index := range buckets {
+		if buckets[index].DistanceMeters <= 0 || buckets[index].MovingTimeSeconds <= 0 {
+			continue
+		}
+
+		paceSecondsPerKm := float64(buckets[index].MovingTimeSeconds) / (buckets[index].DistanceMeters / 1000.0)
+		buckets[index].AveragePaceSecondsPerKm = &paceSecondsPerKm
+	}
+}
+
+func buildAnalyticsRecords(activities []store.Activity) analyticsRecordsResponse {
+	var bestPace *float64
+	records := analyticsRecordsResponse{}
+
+	for _, activity := range activities {
+		if activity.DistanceMeters > 0 && activity.MovingTimeSeconds > 0 {
+			paceSecondsPerKm := float64(activity.MovingTimeSeconds) / (activity.DistanceMeters / 1000.0)
+			if bestPace == nil || paceSecondsPerKm < *bestPace {
+				pace := paceSecondsPerKm
+				bestPace = &pace
+			}
+		}
+
+		if activity.ElevationGain > records.MostElevationGain {
+			records.MostElevationGain = activity.ElevationGain
+		}
+		if activity.MaxSpeed > records.HighestMaxSpeed {
+			records.HighestMaxSpeed = activity.MaxSpeed
+		}
+		if activity.MovingTimeSeconds > records.LongestDuration {
+			records.LongestDuration = activity.MovingTimeSeconds
+		}
+	}
+
+	records.BestPaceSecondsPerKm = bestPace
+	return records
+}
+
+func startOfWeekUTC(value time.Time) time.Time {
+	current := value.UTC()
+	year, month, day := current.Date()
+	midnight := time.Date(year, month, day, 0, 0, 0, 0, time.UTC)
+	weekday := midnight.Weekday()
+	delta := 0
+	if weekday == time.Sunday {
+		delta = -6
+	} else {
+		delta = -(int(weekday) - 1)
+	}
+	return midnight.AddDate(0, 0, delta)
+}
+
+func startOfMonthUTC(value time.Time) time.Time {
+	current := value.UTC()
+	year, month, _ := current.Date()
+	return time.Date(year, month, 1, 0, 0, 0, 0, time.UTC)
 }

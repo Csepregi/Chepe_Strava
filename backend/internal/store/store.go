@@ -353,6 +353,47 @@ func (s *Store) ListActivities(ctx context.Context, athleteID int64, limit int) 
 	return activities, nil
 }
 
+func (s *Store) ListAllActivities(ctx context.Context, athleteID int64) ([]Activity, error) {
+	activities := make([]Activity, 0, 64)
+	query := &dynamodb.QueryInput{
+		TableName:              aws.String(s.activitiesTable),
+		IndexName:              aws.String(s.activitiesByDateGSI),
+		KeyConditionExpression: aws.String("athlete_id = :athlete"),
+		ExpressionAttributeValues: map[string]types.AttributeValue{
+			":athlete": &types.AttributeValueMemberN{Value: strconv.FormatInt(athleteID, 10)},
+		},
+		ScanIndexForward: aws.Bool(false),
+	}
+
+	for {
+		output, err := s.client.Query(ctx, query)
+		if err != nil {
+			return nil, fmt.Errorf("query all activities: %w", err)
+		}
+
+		var batch []activityItem
+		if err := attributevalue.UnmarshalListOfMaps(output.Items, &batch); err != nil {
+			return nil, fmt.Errorf("unmarshal all activities: %w", err)
+		}
+
+		for _, item := range batch {
+			activities = append(activities, convertActivity(item))
+		}
+
+		if len(output.LastEvaluatedKey) == 0 {
+			break
+		}
+
+		query.ExclusiveStartKey = output.LastEvaluatedKey
+	}
+
+	sort.Slice(activities, func(i, j int) bool {
+		return activities[i].StartDate.After(activities[j].StartDate)
+	})
+
+	return activities, nil
+}
+
 func (s *Store) Summary(ctx context.Context, athleteID int64, days int) (Summary, error) {
 	afterEpoch := time.Now().AddDate(0, 0, -days).Unix()
 	query := &dynamodb.QueryInput{
