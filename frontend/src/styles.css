@@ -1124,23 +1124,35 @@ select {
   }
 
   .topbar {
+    flex-direction: column;
     align-items: stretch;
+    gap: 0.9rem;
   }
 
   .header-brand {
     align-items: flex-start;
+    width: 100%;
   }
 
   .action-dock {
     width: 100%;
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) auto;
+    align-items: stretch;
   }
 
   .action-dock-dark {
     border-radius: 22px;
+    padding: 0.55rem;
   }
 
   .nav-action {
-    flex: 1 1 180px;
+    min-width: 0;
+    width: 100%;
+  }
+
+  .logout-btn {
+    justify-self: end;
   }
 
   .calendar-select {
@@ -1176,6 +1188,10 @@ select {
 }
 
 @media (max-width: 560px) {
+  .topbar-dark {
+    padding: 0.95rem;
+  }
+
   .hero-shell {
     padding: 1.3rem;
   }
@@ -1192,8 +1208,40 @@ select {
   }
 
   .brand-mark {
-    width: 60px;
-    height: 60px;
+    width: 54px;
+    height: 54px;
+  }
+
+  .header-copy {
+    gap: 0.12rem;
+  }
+
+  .header-copy strong {
+    font-size: 1rem;
+    line-height: 1.1;
+  }
+
+  .header-copy span {
+    font-size: 0.9rem;
+  }
+
+  .header-copy small {
+    font-size: 0.76rem;
+    line-height: 1.35;
+  }
+
+  .action-dock {
+    grid-template-columns: 1fr;
+  }
+
+  .action-dock-dark {
+    border-radius: 20px;
+  }
+
+  .logout-btn {
+    width: 100%;
+    border-radius: 18px;
+    justify-self: stretch;
   }
 
   .filter-pill,
